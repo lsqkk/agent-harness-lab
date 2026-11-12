@@ -1,0 +1,14 @@
+{
+  "name": "agent-harness-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser-based lab for learning tool calls, approvals, and agent traces.",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node serve.mjs",
+    "lab": "node cli.mjs",
+    "test": "node --test"
+  }
+}

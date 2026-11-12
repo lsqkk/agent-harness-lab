@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="用四个可离线回放的实验，看清 Agent Harness 如何调用工具、处理错误和保护文件。">
+  <meta name="theme-color" content="#f7f4eb">
+  <title>Agent Harness Lab · 交互实验室</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="masthead shell">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true">↳</span> Agent Harness Lab</a>
+    <nav aria-label="页面导航"><a href="#lab">交互实验</a><a href="#guide">原理手册</a></nav>
+  </header>
+
+  <main class="shell">
+    <section class="intro" aria-labelledby="title">
+      <div>
+        <p class="kicker">AGENT HARNESS LAB / 交互实验室</p>
+        <h1 id="title">拆开一个 <em>Agent</em></h1>
+        <p class="lede">从一次读文件开始，逐步观察模型、工具与用户如何交接控制权。</p>
+      </div>
+      <ol class="loop" aria-label="工具调用循环">
+        <li><b>MODEL</b><span>提出调用</span></li>
+        <li><b>HARNESS</b><span>校验与调度</span></li>
+        <li><b>TOOL</b><span>执行并返回</span></li>
+        <li class="return">↳ 工具结果进入下一轮请求</li>
+      </ol>
+    </section>
+
+    <section class="lab" id="lab" aria-label="交互实验">
+      <aside class="sidebar">
+        <h2>选择实验</h2>
+        <div id="scenarios" class="scenarios"></div>
+        <p class="offline"><span></span> 离线 · 内存工作区</p>
+      </aside>
+
+      <div class="workbench">
+        <div class="taskbar">
+          <div>
+            <h2 id="scenario-title"></h2>
+            <p id="prompt"></p>
+          </div>
+          <div class="controls" aria-label="运行控制">
+            <button type="button" id="reset" class="button">重置</button>
+            <button type="button" id="auto" class="button">自动运行</button>
+            <button type="button" id="next" class="button primary">下一步 <span aria-hidden="true">→</span></button>
+          </div>
+        </div>
+        <p id="hint" class="hint"></p>
+        <div id="approval" class="approval" hidden></div>
+        <div class="panes">
+          <section class="timeline-pane" aria-labelledby="timeline-label">
+            <header class="pane-title"><h3 id="timeline-label">运行轨迹</h3><span id="state" role="status"></span></header>
+            <ol id="timeline" class="timeline"></ol>
+          </section>
+          <section class="inspector" aria-label="检查运行数据">
+            <header class="pane-title tabs" role="tablist" aria-label="检查视图">
+              <button type="button" role="tab" id="detail-tab" aria-controls="inspection" aria-selected="true">事件详情</button>
+              <button type="button" role="tab" id="files-tab" aria-controls="inspection" aria-selected="false" tabindex="-1">工作区</button>
+            </header>
+            <div id="inspection" role="tabpanel" aria-labelledby="detail-tab" tabindex="0"></div>
+          </section>
+        </div>
+        <footer class="tracebar">
+          <span id="counts"></span>
+          <div>
+            <button type="button" id="replay" class="text-button">从头回放</button>
+            <button type="button" id="export" class="text-button">导出 JSON</button>
+            <button type="button" id="import" class="text-button">导入</button>
+            <input type="file" id="trace-file" accept=".json,application/json" hidden>
+          </div>
+        </footer>
+        <p id="notice" role="status" hidden></p>
+      </div>
+    </section>
+
+    <section class="guide" id="guide" aria-labelledby="guide-title">
+      <header><p class="kicker">FIELD GUIDE / 原理手册</p><h2 id="guide-title">模型提出，Harness 执行</h2></header>
+      <article>
+        <h3><span>01</span> 一次工具调用到底发生了什么？</h3>
+        <p>用户问「这个项目用什么主题」。宿主程序把问题和工具定义一起发给模型。工具定义告诉模型有哪些函数、参数怎么填。模型返回一个带 ID 的 <code>tool_calls</code> 请求，程序据此查找本地函数，校验参数，读取样例文件。</p>
+        <pre><code>assistant  tool_calls[0]
+  id: read-1
+  name: read_file
+  arguments: {"path":"config/app.json"}
+
+tool
+  tool_call_id: read-1
+  content: {"ok":true,"content":"…","revision":0}</code></pre>
+        <p>Harness 把助手的调用消息和工具的结果都放进下一轮请求，用 <code>tool_call_id</code> 把结果和调用配对。模型这时才拿到文件内容。如果它继续发出工具调用，程序继续处理。如果它给出答复，循环结束。打开实验中的「请求上下文」可以看到每轮的完整消息和工具定义。</p>
+      </article>
+      <article>
+        <h3><span>02</span> 最初的油猴脚本做到了哪一步？</h3>
+        <p>旧版在网页回答里找 <code>[[COMMAND={…}]]</code>，用浏览器脚本把请求发给本地 Node.js 桥接器。桥接器读文件，你再把结果粘贴回对话。工具调用已经有了形状，结果回传由人完成。后来本地 CLI 草稿让这一步自动运行，但仍需要从网页文本猜测命令和回复边界。</p>
+        <p>结构化工具调用把函数名、参数和调用 ID 放进协议字段。它解决了如何传递调用，执行权限仍由宿主判断。反向代理主要负责转发请求，Harness 还管理下一轮模型应该看到什么、何时执行工具、何时暂停等状态。</p>
+      </article>
+      <article>
+        <h3><span>03</span> 什么值得放在模型外面？</h3>
+        <dl>
+          <dt>参数与权限</dt><dd>工具名必须注册，参数必须合规，路径必须属于样例项目。这些条件在工具执行前由程序检查。</dd>
+          <dt>错误与反馈</dt><dd><code>FILE_NOT_FOUND</code> 是一次可见的工具结果。模型可以根据它改用 <code>list_files</code>，再读取正确路径。</dd>
+          <dt>审批与并发</dt><dd>写入先生成替换预览。审批时重新检查文件修订号。若文件已被修改，旧预览返回 <code>CONFLICT</code>，模型需要重新读取和提案。</dd>
+          <dt>预算与退出</dt><dd>工具调用数和模型请求轮次各有上限。超过工具预算时拒绝整批新调用，避免只执行一半。</dd>
+          <dt>轨迹与回放</dt><dd>轨迹保存模型请求、可见响应、工具结果和每步文件快照。回放按顺序展示已记录的事件。想验证另一种审批决定，重置实验并重新运行。</dd>
+        </dl>
+      </article>
+    </section>
+  </main>
+  <footer class="page-footer shell"><span>Agent Harness Lab</span><a href="#lab">回到实验 ↑</a></footer>
+  <noscript>交互实验需要启用 JavaScript。原理手册可直接阅读。</noscript>
+</body>
+</html>

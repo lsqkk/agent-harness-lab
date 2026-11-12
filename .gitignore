@@ -105,3 +105,6 @@ user-settings.json
 # 测试生成的文件
 test-output/
 samples/
+
+# CLI Agent browser profile (user-specific login session)
+.deepseek-skills/
